@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseWave // Web Audio Synth & Beat Studio</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --panel: #151c2c;
+      --accent: #00f0ff;
+      --accent2: #ff2a85;
+      --text: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body {
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
+    }
+    .studio {
+      background: var(--panel); border: 1px solid #26324d; border-radius: 16px;
+      padding: 24px; max-width: 540px; width: 100%;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 6px; letter-spacing: 1px; color: var(--accent); }
+    p { font-size: 0.85rem; color: #94a3b8; margin-bottom: 18px; }
+    canvas {
+      width: 100%; height: 120px; background: #070a10;
+      border-radius: 10px; border: 1px solid #1e293b; margin-bottom: 20px;
+    }
+    .grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px;
+    }
+    .pad {
+      background: #1e293b; border: 2px solid #334155; border-radius: 12px;
+      height: 75px; color: var(--text); font-weight: 700; font-size: 0.85rem;
+      cursor: pointer; transition: 0.1s; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; user-select: none;
+    }
+    .pad span { font-size: 0.7rem; color: #64748b; margin-top: 4px; }
+    .pad:active, .pad.active {
+      border-color: var(--accent); background: rgba(0, 240, 255, 0.15);
+      transform: scale(0.96); box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+    }
+    .controls { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    button.loop-btn {
+      background: var(--accent2); color: #fff; border: none; padding: 10px 16px;
+      border-radius: 8px; font-weight: 600; cursor: pointer;
+    }
+    select {
+      background: #0f172a; color: var(--text); border: 1px solid #334155;
+      padding: 9px 12px; border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="studio">
+    <h1>⚡ PULSEWAVE STUDIO</h1>
+    <p>Web Audio API Synthesizer & Real-Time FFT Visualizer — Built by Pradyumna Tiwari</p>
+    <canvas id="visualizer"></canvas>
+
+    <div class="grid" id="padGrid"></div>
+
+    <div class="controls">
+      <select id="waveType">
+        <option value="sawtooth">Lead (Sawtooth)</option>
+        <option value="triangle">Acoustic / Pluck (Triangle)</option>
+        <option value="square">8-Bit Chiptune (Square)</option>
+        <option value="sine">Sub Bass (Sine)</option>
+      </select>
+      <button class="loop-btn" id="arpBtn">▶ Auto-Arp Loop</button>
+    </div>
+  </div>
+
+  <script>
+    const notes = [
+      { label: "C4", freq: 261.63, key: "1" },
+      { label: "D4", freq: 293.66, key: "2" },
+      { label: "E4", freq: 329.63, key: "3" },
+      { label: "G4", freq: 392.00, key: "4" },
+      { label: "A4", freq: 440.00, key: "Q" },
+      { label: "C5", freq: 523.25, key: "W" },
+      { label: "D5", freq: 587.33, key: "E" },
+      { label: "E5", freq: 659.25, key: "R" }
+    ];
+
+    let audioCtx, analyser, dataArray;
+    const canvas = document.getElementById("visualizer");
+    const ctx = canvas.getContext("2d");
+    const grid = document.getElementById("padGrid");
+    const waveSelect = document.getElementById("waveType");
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        analyser.connect(audioCtx.destination);
+        drawVisualizer();
+      }
+    }
+
+    function playNote(freq, padEl) {
+      initAudio();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = waveSelect.value;
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+      gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.45);
+
+      osc.connect(gain);
+      gain.connect(analyser);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.45);
+
+      if (padEl) {
+        padEl.classList.add("active");
+        setTimeout(() => padEl.classList.remove("active"), 150);
+      }
+    }
+
+    notes.forEach((n) => {
+      const btn = document.createElement("div");
+      btn.className = "pad";
+      btn.innerHTML = `${n.label}<span>Key [${n.key}]</span>`;
+      btn.addEventListener("pointerdown", () => playNote(n.freq, btn));
+      grid.appendChild(btn);
+      n.el = btn;
+    });
+
+    window.addEventListener("keydown", (e) => {
+      const found = notes.find(n => n.key === e.key.toUpperCase());
+      if (found) playNote(found.freq, found.el);
+    });
+
+    let arpInterval = null;
+    let step = 0;
+    document.getElementById("arpBtn").addEventListener("click", (e) => {
+      if (arpInterval) {
+        clearInterval(arpInterval);
+        arpInterval = null;
+        e.target.textContent = "▶ Auto-Arp Loop";
+      } else {
+        e.target.textContent = "⏹ Stop Loop";
+        arpInterval = setInterval(() => {
+          const n = notes[step % notes.length];
+          playNote(n.freq, n.el);
+          step++;
+        }, 180);
+      }
+    });
+
+    function drawVisualizer() {
+      requestAnimationFrame(drawVisualizer);
+      analyser.getByteFrequencyData(dataArray);
+      ctx.fillStyle = "#070a10";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const barWidth = (canvas.width / dataArray.length) * 1.8;
+      let x = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const barHeight = (dataArray[i] / 255) * canvas.height;
+        ctx.fillStyle = `rgb(0, ${180 + barHeight}, 255)`;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+        x += barWidth;
+      }
+    }
+  </script>
+</body>
+</html>
